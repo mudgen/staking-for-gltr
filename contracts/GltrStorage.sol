@@ -16,7 +16,10 @@ contract GltrStorage {
     GltrTradeStakingDiamond = msg.sender;
     StakingToken = IERC20(_stakingToken);
     Pid = _pid;
-    GLTRToken.approve(address(StakingContract), type(uint256).max);    
+    GLTRToken.approve(address(StakingContract), type(uint256).max);
+    GLTRToken.approve(GltrTradeStakingDiamond, type(uint256).max);
+    StakingToken.approve(address(StakingContract), type(uint256).max);
+    StakingToken.approve(GltrTradeStakingDiamond, type(uint256).max);     
   }
 
 
@@ -25,4 +28,10 @@ contract GltrStorage {
     StakingContract.deposit(Pid, _amount);
   }
 
+
+  function withdraw(uint256 _amount) external {
+    require(msg.sender == GltrTradeStakingDiamond, "Not authorized");
+    StakingContract.withdraw(Pid, _amount);
+  }
+   
 }
