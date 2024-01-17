@@ -33,4 +33,18 @@ interface IFarmFacet {
 
   function paidOut() external view returns (uint256);
 
+
+  function poolLength() external view returns (uint256);
+
+
+  // Info of each pool.
+  struct PoolInfo {
+    IERC20 lpToken; // Address of LP token contract.
+    uint256 allocPoint; // How many allocation points assigned to this pool. ERC20s to distribute per block.
+    uint256 lastRewardBlock; // Last block number that ERC20s distribution occurs.
+    uint256 accERC20PerShare; // Accumulated ERC20s per share, times 1e12.
+  }
+
+  function poolInfo(uint256 _pid) external view returns (PoolInfo memory);
+
 }
