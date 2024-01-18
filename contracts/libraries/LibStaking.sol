@@ -9,15 +9,14 @@ IERC20 constant GltrToken = IERC20(0x3801C3B3B5c98F88a9c9005966AA96aa440B9Afc);
 IFarmFacet constant StakingContract = IFarmFacet(0x1fE64677Ab1397e20A1211AFae2758570fEa1B8c);
 
 
-struct GltrStorageInfo {
-    GltrStorage gltrStorage;
+struct PoolInfo {
+    uint256 rewardStored;    
     IERC20 stakingToken;
-    uint256 accERC20PerShare;
-    uint256 lastRewardAmount;
+    uint256 accERC20PerShare;    
 }
 
 struct StakingStorage {
-  GltrStorageInfo[] gltrStorageInfo;
+  PoolInfo[] poolInfo;
 }
 
 

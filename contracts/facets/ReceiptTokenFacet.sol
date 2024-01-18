@@ -136,7 +136,6 @@ contract ReceiptTokenFacet is IERC721, IERC721Errors {
     */
   function transferFrom(address _from, address _to, uint256 _tokenId) external {
     internalTransferFrom(_from, _to, _tokenId);
-
   }
 
   

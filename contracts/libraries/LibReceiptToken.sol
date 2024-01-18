@@ -9,7 +9,7 @@ struct TokenInfo {
   uint256 ownerTokenIdsIndex;
   uint256 stakedTokenAmount;  
   address approved;
-  uint96 gltrStorageId;
+  uint96 poolId;
   uint256 debt;
 }
 
