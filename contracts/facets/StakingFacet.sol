@@ -14,12 +14,11 @@ import {ReentrancyGuard} from "../libraries/ReentrancyGuard.sol";
 
 contract StakingFacet is ReentrancyGuard { 
 
-  function addStakingTokens() external {
+  // Add staking pools from staking contract
+  function addStakingPools() external {
     StakingStorage storage s = LibStaking.diamondStorage();
-
-    uint256 poolLength = StakingContract.poolLength(); 
-            
-    for(uint256 i = s.poolInfo.length; i < poolLength; i++) {
+    uint256 pl = StakingContract.poolLength();           
+    for(uint256 i = s.poolInfo.length; i < pl; i++) {
       IERC20 stakingToken = StakingContract.poolInfo(i).lpToken;
       s.poolInfo.push(PoolInfo(
         {
@@ -30,88 +29,118 @@ contract StakingFacet is ReentrancyGuard {
       ));
     } 
   }
+
   
-  function poolRewards(uint256 _pid) external view returns(uint256 rewards_) {
+  // Trade staking tokens for NFT
+  // Deposits staking tokens and mints NFT
+  function mint(uint256[] calldata _pids, uint256[] calldata _amounts) public nonReentrant {
+    require(_pids.length == _amounts.length, "_pids length not equal to amounts length");
     StakingStorage storage s = LibStaking.diamondStorage();
-    require(_pid < s.poolInfo.length, "Invalid _pid: too large");    
-    rewards_ = StakingContract.pending(_pid, address(0)) + s.poolInfo[_pid].rewardStored;
-  }
-
-  // function updateBonusReward() internal {
-  //   StakingStorage storage s = LibStaking.diamondStorage();
-  //   uint256 newAllStoredReward = GltrToken.balanceOf(address(0));
-  //   uint256 allStoredReward = s.allStoredReward;
-  //   uint256 bonus = newAllStoredReward - allStoredReward;
-  //   if(bonus < 100000e18) {
-  //     return;
-  //   }
-  //   uint8[] memory bonusPercents = s.bonusPercents;
-  //   for(uint256 pid; pid < bonusPercents.length; i++) {
-  //     uint256 percent = bonusPercents[pid];
-  //     if(percent == 0) {
-  //       continue;
-  //     }
-  //     uint256 reward = s.poolInfo[i]
-
-
-    
-
-
-
-
-  // }
-
-
-  function updatePoolInfo(uint256 _pid) internal {
-    StakingStorage storage s = LibStaking.diamondStorage();
-    PoolInfo storage p = s.poolInfo[_pid];
-    uint256 newRewards = StakingContract.pending(_pid, address(this));
-    if(newRewards == 0) {
-      return;
-    }
-    uint256 stakedAmount = StakingContract.deposited(_pid, address(this));
-    if(stakedAmount == 0) {
-      return;
-    }
-    p.accERC20PerShare += (newRewards * 1e18) / stakedAmount;
-    p.rewardStored += newRewards;    
-  }
-
-  function mint(uint256 _pid, uint256 _amount) external nonReentrant {
-    require(_amount > 0, "Staked amount must be greater than 0");
-    StakingStorage storage s = LibStaking.diamondStorage();
-    require(_pid < s.poolInfo.length, "Invalid _pid: too large");
-    PoolInfo storage p = s.poolInfo[_pid];
-    uint256 currentPoolReward = GltrToken.balanceOf(address(this));
-    uint256 stakedAmount = StakingContract.deposited(_pid, address(this));
-    SafeERC20.safeTransferFrom(p.stakingToken, msg.sender, address(this), _amount);
-    StakingContract.deposit(_pid, _amount);
-
-    // calculate rewards info
-    uint256 newPoolReward = GltrToken.balanceOf(address(this)) - currentPoolReward;
-    p.rewardStored += newPoolReward;  
-    if(stakedAmount > 0) {
-      p.accERC20PerShare += (newPoolReward * 1e18) / stakedAmount;
-    }    
-        
-    // mint NFT
     ReceiptTokenStorage storage rt = LibReceiptToken.diamondStorage();
+    uint256 pl = s.poolInfo.length;
     uint256 tokenId = rt.tokenIdNum;
-    tokenId++;
+    for(uint256 i; i < _amounts.length; i++) {
+      uint256 pid = _pids[i];
+      uint256 amount = _amounts[i];
+      require(amount > 0, "Staked amount must be greater than 0");      
+      require(pid < pl, "Invalid _pid: too large");
+      PoolInfo storage p = s.poolInfo[pid];
+      uint256 currentPoolReward = GltrToken.balanceOf(address(this));
+      uint256 stakedAmount = StakingContract.deposited(pid, address(this));
+      SafeERC20.safeTransferFrom(p.stakingToken, msg.sender, address(this), amount);
+      StakingContract.deposit(pid, amount);
+
+      // calculate rewards info
+      uint256 newPoolReward = GltrToken.balanceOf(address(this)) - currentPoolReward;
+      p.rewardStored += newPoolReward;
+      uint256 accERC20PerShare = p.accERC20PerShare;
+      if(newPoolReward > 0 && stakedAmount > 0) {        
+        accERC20PerShare += (newPoolReward * 1e18) / stakedAmount;
+        p.accERC20PerShare = accERC20PerShare;
+      }              
+      // mint NFT           
+      tokenId++;      
+      TokenInfo storage ti = rt.tokenInfo[tokenId];    
+      ti.owner = msg.sender;
+      uint256 tokenIndex = rt.ownerTokenIds[msg.sender].length;        
+      ti.ownerTokenIdsIndex = tokenIndex;
+      rt.ownerTokenIds[msg.sender].push(tokenId);
+      ti.stakedTokenAmount = amount;
+      ti.debt = (accERC20PerShare * amount) / 1e18;    
+      ti.poolId = uint96(pid);
+      LibReceiptToken.checkOnERC721Received(address(0), msg.sender, tokenId, "");
+      emit IERC721.Transfer(address(0), msg.sender, tokenId); 
+    }
     rt.tokenIdNum = tokenId;
-    TokenInfo storage ti = rt.tokenInfo[tokenId];    
-    ti.owner = msg.sender;
-    uint256 tokenIndex = rt.ownerTokenIds[msg.sender].length;        
-    ti.ownerTokenIdsIndex = tokenIndex;
-    rt.ownerTokenIds[msg.sender].push(tokenId);
-    ti.stakedTokenAmount = _amount;
-    ti.debt = (p.accERC20PerShare * _amount) / 1e18;    
-    ti.poolId = uint96(_pid);
-    LibReceiptToken.checkOnERC721Received(address(0), msg.sender, tokenId, "");
-    emit IERC721.Transfer(address(0), msg.sender, tokenId);   
   }
 
-  function receiptTokenRewards(uint256 _tokenId) external view returns(uint256 rewards_) {
+
+  // Trade NFT for staking tokens and reward
+  // Withdraws staking tokens and reward and buns NFT
+  function burn(uint256[] calldata _tokenIds) external nonReentrant {
+    StakingStorage storage s = LibStaking.diamondStorage();
+    ReceiptTokenStorage storage rt = LibReceiptToken.diamondStorage();
+    for(uint256 i; i < _tokenIds.length; i++) {
+      uint256 tokenId = _tokenIds[i];
+      TokenInfo storage ti = rt.tokenInfo[tokenId];
+      address owner = ti.owner;
+      if(owner == address(0)) {
+        revert IERC721Errors.ERC721NonexistentToken(tokenId);
+      }
+      if(!LibReceiptToken.isAuthorized(owner, msg.sender, tokenId)) {
+        revert IERC721Errors.ERC721InsufficientApproval(msg.sender, tokenId);
+      }
+      uint256 pid = ti.poolId;
+      uint256 currentPoolReward = GltrToken.balanceOf(address(this));
+      uint256 stakedAmount = StakingContract.deposited(pid, address(this));    
+      StakingContract.withdraw(pid, ti.stakedTokenAmount);
+      
+      // calculate rewards info
+      PoolInfo storage p = s.poolInfo[pid];     
+      uint256 newPoolReward = GltrToken.balanceOf(address(this)) - currentPoolReward;
+      p.rewardStored += newPoolReward;
+      uint256 accERC20PerShare = p.accERC20PerShare;
+      if(newPoolReward > 0) {        
+        accERC20PerShare += (newPoolReward * 1e18) / stakedAmount;
+        p.accERC20PerShare = accERC20PerShare;
+      }      
+      uint256 reward = ((p.accERC20PerShare * ti.stakedTokenAmount) / 1e18) - ti.debt;
+      p.rewardStored -= reward;
+
+      SafeERC20.safeTransferFrom(p.stakingToken, address(this), owner, ti.stakedTokenAmount);
+      SafeERC20.safeTransferFrom(GltrToken, address(this), owner, reward);
+      LibReceiptToken.burn(tokenId);
+    }
+  }
+
+  struct Bonus {
+    uint256 pid; // pool id
+    uint256 reward; // GLTR reward
+  }
+  // Add bonus GLTR to pools
+  function addBonus(Bonus[] calldata _bonuses) external {
+    uint256 totalBonus;
+    StakingStorage storage s = LibStaking.diamondStorage();
+    uint256 pl = s.poolInfo.length;    
+    for(uint256 i; i < _bonuses.length; i++) {
+      Bonus calldata bonus = _bonuses[i];
+      require(bonus.pid < pl, "Invalid _pid: too large");
+      totalBonus += bonus.reward;          
+      uint256 stakedAmount = StakingContract.deposited(bonus.pid, address(this));
+      require(stakedAmount > 0, "No stakers to give bonus");
+      PoolInfo storage p = s.poolInfo[bonus.pid];
+      p.rewardStored += bonus.reward;
+      p.accERC20PerShare += (bonus.reward * 1e18) / stakedAmount; 
+    }
+    GltrToken.transferFrom(msg.sender, address(this), totalBonus);
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  // GETTERS
+  //////////////////////////////////////////////////////////////////////////////
+
+  // Return the total reward that an NFT can be traded for
+  function receiptTokenReward(uint256 _tokenId) public view returns(uint256 rewards_) {
     TokenInfo storage ti = LibReceiptToken.diamondStorage().tokenInfo[_tokenId];
     if(ti.owner == address(0)) {
       revert IERC721Errors.ERC721NonexistentToken(_tokenId);
@@ -130,46 +159,84 @@ contract StakingFacet is ReentrancyGuard {
     rewards_ = ((accERC20PerShare * ti.stakedTokenAmount) / 1e18) - ti.debt;
   }
 
-  function burn(uint256 _tokenId) external nonReentrant {
-    TokenInfo storage ti = LibReceiptToken.diamondStorage().tokenInfo[_tokenId];
-    address owner = ti.owner;
-    if(owner == address(0)) {
-      revert IERC721Errors.ERC721NonexistentToken(_tokenId);
-    }
-    if(!LibReceiptToken.isAuthorized(owner, msg.sender, _tokenId)) {
-      revert IERC721Errors.ERC721InsufficientApproval(msg.sender, _tokenId);
-    }
-    uint256 pid = ti.poolId;
-    uint256 currentPoolReward = GltrToken.balanceOf(address(this));
-    uint256 stakedAmount = StakingContract.deposited(pid, address(this));    
-    StakingContract.withdraw(pid, ti.stakedTokenAmount);
-    
-     // calculate rewards info
-    PoolInfo storage p = LibStaking.diamondStorage().poolInfo[pid];     
-    uint256 newPoolReward = GltrToken.balanceOf(address(this)) - currentPoolReward;
-    p.rewardStored += newPoolReward; 
-    p.accERC20PerShare += (newPoolReward * 1e18) / stakedAmount;    
-    uint256 reward = ((p.accERC20PerShare * ti.stakedTokenAmount) / 1e18) - ti.debt;
-    p.rewardStored -= reward;
 
-    SafeERC20.safeTransferFrom(p.stakingToken, address(this), owner, ti.stakedTokenAmount);
-    SafeERC20.safeTransferFrom(GltrToken, address(this), owner, reward);
-    LibReceiptToken.burn(_tokenId);
+  struct NftInfo {
+    uint256 tokenId;
+    uint256 stakedTokenAmount;
+    uint256 poolId;
+    uint256 reward;
+    address owner;
   }
 
-  
+  function tokenInfo(uint256 _tokenId) external view returns(NftInfo memory n_) {    
+    TokenInfo storage ti = LibReceiptToken.diamondStorage().tokenInfo[_tokenId];
+    address owner = ti.owner;
+    if (owner == address(0)) {
+        revert IERC721Errors.ERC721NonexistentToken(_tokenId);
+    }
+    n_.tokenId = _tokenId;    
+    n_.stakedTokenAmount = ti.stakedTokenAmount;
+    n_.poolId = ti.poolId;
+    n_.reward = receiptTokenReward(_tokenId);    
+    n_.owner = owner;
+  }
 
+  struct OwnerInfo {
+    uint256 totalReward; // Total GLTR rewards from all NFTs owned by user
+    NftInfo[] nftInfo; // Info about all tokens owned by user
+  }
+  // Get owner information
+  function ownerInfo(address _owner) external view returns(OwnerInfo memory ownerInfo_) {
+    ReceiptTokenStorage storage rt = LibReceiptToken.diamondStorage();    
+    uint256[] storage tokenIds = rt.ownerTokenIds[_owner];
+    uint256 tokenIdsLength = tokenIds.length;
+    ownerInfo_.nftInfo = new NftInfo[](tokenIdsLength);
+    for(uint256 i; i < tokenIdsLength; i++) {      
+      NftInfo memory n;
+      n.tokenId = tokenIds[i];
+      TokenInfo storage ti = rt.tokenInfo[n.tokenId];
+      n.stakedTokenAmount = ti.stakedTokenAmount;
+      n.poolId = ti.poolId;
+      n.reward = receiptTokenReward(n.tokenId);
+      ownerInfo_.totalReward += n.reward;
+      n.owner = _owner;      
+    }
+  }
+
+  struct PoolData {
+    uint256 pid;
+    address stakingToken;
+    uint256 stakingAmount;
+    uint256 reward;
+  }
+
+  function poolData() external view returns(PoolData[] memory pd_) {
+    StakingStorage storage s = LibStaking.diamondStorage();
+    uint256 pl = s.poolInfo.length;
+    pd_ = new PoolData[](pl);
+    for(uint256 i; i < pl; i++) {
+      pd_[i].pid = 0;
+      pd_[i].stakingToken = address(s.poolInfo[i].stakingToken);
+      pd_[i].stakingAmount = StakingContract.deposited(i, address(this)); 
+      pd_[i].reward = StakingContract.pending(i, address(this)) + s.poolInfo[i].rewardStored;
+    }
+  }
+
+  // Return total pool rewards.
+  function poolRewards(uint256 _pid) external view returns(uint256 rewards_) {
+    StakingStorage storage s = LibStaking.diamondStorage();
+    require(_pid < s.poolInfo.length, "Invalid _pid: too large");    
+    rewards_ = StakingContract.pending(_pid, address(this)) + s.poolInfo[_pid].rewardStored;
+  }
+
+  // Return GLTR contract address
   function rewardToken() external pure returns(address) {
     return address(GltrToken);
   }
 
-  // function totalReward() internal view returns(uint256) {
-  //   return RewardToken.balanceOf(address(this));
-  // }
+  function poolLength() external view returns (uint256) {
+    return LibStaking.diamondStorage().poolInfo.length;
+  }
 
-  // function deposit(uint256 _amount) external {
-  //   uint256 contractBalance = RewardToken.balanceOf(address(this));
-
-  // }
 
 }
