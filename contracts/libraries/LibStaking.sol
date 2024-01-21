@@ -10,7 +10,7 @@ IFarmFacet constant StakingContract = IFarmFacet(0x1fE64677Ab1397e20A1211AFae275
 
 
 struct PoolInfo {
-    uint256 rewardStored;    
+    uint256 gltrStored;    
     IERC20 stakingToken;
     uint256 accERC20PerShare;    
 }
